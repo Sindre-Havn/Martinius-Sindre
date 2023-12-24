@@ -1,60 +1,97 @@
 import pygame
 from pygame.locals import *
 from pygame.math import *
+import numpy as np
 import sys
 import copy
-
 
 # The init() function in pygame initializes the pygame engine
 pygame.init()
 # Creates a window
-WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN) #WIN = pygame.display.set_mode((400,400)) #
 WIN.fill(pygame.Color(255, 0, 0))
 pygame.display.set_caption("Survival")
-# Limits FPS. Normally 30-60. If the game is too heavy
-# then the FPS may drop below the decided value.
 clock = pygame.time.Clock()
-FPS = 60
+TICKS_PER_SECOND = 60
 
-WIN_scroll = [0,0]
+out_of_screen_distance = Vector2(WIN.get_width(), WIN.get_height())
+def is_off_screen(pos):
+    x, y = pos
+    return x < 0 or x > WIN.width or y < 0 or y > WIN.height
 
-out_of_screen_distance = pygame.Vector2(WIN.get_width(), WIN.get_height())
-print(out_of_screen_distance)
 
 
 class Mob:
-    def __init__(self,x,y,speed,size):
-        self.pos = pygame.Vector2(x,y)
+    def __init__(self,pos,speed,size):
+        #self.image = pygame.image.load("")
+        self.box = pygame.Rect(pos, size) #self.box = self.image.get_rect()
+        self.box.center = pos
+        self.pos = copy.copy(self.box.center)
         self.speed = speed
         self.size = size
-
-class Bullet(Mob):
-    def __init__(self,x,y,speed,size,move_vec):
-        super().__init__(x,y,speed,size)
-        self.box = pygame.Rect(self.pos,(size//4, size))
-        self.box.center = p.box.center
-        self.direction = move_vec
-        pygame.transform.rotate(WIN, p.direction.angle_to(pygame.Vector2(1,0)))
-        self.box.move_ip(self.direction*p.size*1.5)
-
+        self.direction = Vector2()
+    
     def move(self):
         self.box.move_ip(self.direction*self.speed)
 
     def draw(self):
         pygame.draw.rect(WIN, (0, 255, 0), self.box)
 
-class Player(Mob):
-    def __init__(self,x,y,speed,size):
-        super().__init__(x,y,speed,size)
-        self.box = pygame.Rect((x,y),(size, size))
-        self.direction = (pygame.Vector2(pygame.mouse.get_pos()) - pygame.Vector2(self.box.center)).normalize()
-        self.bullets = []
-        #self.image = pygame.image.load("")
-        #self.rectangle = self.image.get_rect()
-        #self.rect.center = (random.randint(40, SCREEN_WIDTH-40), 0)
+
+class Bullet(Mob):
+    def __init__(self,pos,speed,size,trajectory):
+        super().__init__(pos,speed,size)
+        self.start_pos = pos
+        self.direction = np.radians(trajectory.as_polar()[1])
+        self.moved_distance = 0
+        print(self.direction)
     
     def move(self):
-        move_vec = pygame.Vector2(0,0)
+        self.moved_distance += self.speed*1
+        self.box.center = self.rotate_bullet(self.moved_distance, self.trajectory(self.moved_distance))
+        self.pos = self.box.center
+
+    def trajectory(self, x):
+        #return 0.0001*x**2
+        return 60*np.sin(0.01*x)
+    
+    def rotate_bullet(self, x, y):
+        #rotation matrix formula
+        #x′=xcosθ−ysinθ
+        #y′=xsinθ+ycosθ
+        x_rot = x*np.cos(self.direction) - y*np.sin(self.direction) + self.start_pos.x
+        y_rot = x*np.sin(self.direction) + y*np.cos(self.direction) + self.start_pos.y
+        return x_rot, y_rot
+
+class Gun:
+    def __init__(self, firerate, magazine_size, total_bullets, size):
+        self.firerate = firerate
+        self.magazine_size = magazine_size
+        self.total_bullets = total_bullets
+        self.size = size
+        self.upgraded = True
+        self.shot_delay = 500 #ms
+    
+    def shoot(self):
+        b = Bullet(Vector2(p.pos),10,Vector2(5,5),p.aim_direction)
+        p.bullets.append(b)
+
+    def reload(self):
+        pass
+
+
+class Player(Mob):
+    def __init__(self,pos,speed,size, gun):
+        super().__init__(pos,speed,size)
+        self.aim_direction = (Vector2(pygame.mouse.get_pos()) - Vector2(self.box.center)).normalize()
+        self.bullets = []
+        self.gun = gun
+        self.current_time = 0
+        self.last_shot_time = 0
+
+    def move(self):
+        self.current_time = pygame.time.get_ticks()
+        move_vec = Vector2(0,0)
         pressed_keys = pygame.key.get_pressed()
         if pressed_keys[K_w]:
             move_vec.y = -1
@@ -64,63 +101,48 @@ class Player(Mob):
             move_vec.y = 1
         if pressed_keys[K_d]:
             move_vec.x = 1
+        if pressed_keys[K_ESCAPE]:
+            pygame.quit()
+            sys.exit()
         if move_vec.length() != 0:
-            self.box.move_ip(move_vec.normalize() * self.speed)
-        
-        """for event in pygame.event.get():
-            if event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == 1:
-                    self.shoot()"""
+            self.box.center += move_vec.normalize() * self.speed
+            self.pos = self.box.center
 
-        #if pygame.mouse.get_pressed()[0]:
-        #    self.shoot()
+        if pygame.mouse.get_pressed()[0] and self.gun.upgraded and self.current_time - self.last_shot_time > self.gun.shot_delay:
+            g.shoot()
+            self.last_shot_time = self.current_time
 
     def update_and_draw_bullets(self):
         for bullet in self.bullets:
-            if pygame.Vector2(self.box.center).distance_to(pygame.Vector2(bullet.box.center)) > out_of_screen_distance.length():
+            if Vector2(self.box.center).distance_to(Vector2(bullet.box.center)) > out_of_screen_distance.length():
                 self.bullets.remove(bullet)
                 print('Remove', len(self.bullets))
             bullet.move()
             bullet.draw()
 
     def draw(self):
-        mouse_pos = pygame.Vector2(pygame.mouse.get_pos())
-        pos_center = pygame.Vector2(self.box.center)
-        self.direction = (mouse_pos - pos_center).normalize()
+        mouse_pos = Vector2(pygame.mouse.get_pos())
+        pos_center = Vector2(self.box.center)
+        self.aim_direction = (mouse_pos - pos_center).normalize()
         longest_screen_dimetion = max(WIN.get_width(), WIN.get_height())
-        aim_line_end = pos_center + pygame.Vector2(self.direction[0] * longest_screen_dimetion, self.direction[1] * longest_screen_dimetion)
+        aim_line_end = pos_center + self.aim_direction * longest_screen_dimetion
         pygame.draw.line(WIN, (100,100,100), pos_center, aim_line_end)
-        pygame.draw.rect(WIN, (0, 255, 0), self.box)
 
-    def shoot(self):
-        print("Shoot", len(self.bullets))
-        self.bullets.append(Bullet(self.pos[0],self.pos[1],4,20,self.direction))
+        super().draw()
 
-p = Player(200, 200, 2, 30)
+g = Gun(200, None, None, Vector2(5,5))
+p = Player(Vector2(200,200), 5, Vector2(30,30), g)
 
-weapon_upgraded = True
-shot_interval = 2000 #ms
-last_shot_time = 0
 while True:
-    current_time = pygame.time.get_ticks()
     for event in pygame.event.get():
         if event.type == QUIT:
             pygame.quit()
             sys.exit()
-        
-        if event.type == pygame.MOUSEBUTTONDOWN or (weapon_upgraded and current_time - last_shot_time > shot_interval):
-            p.shoot()
-            last_shot_time = current_time
 
-        
-
-    
-    p.move()
     WIN.fill((0,0,0))
-    p.update_and_draw_bullets()
+    p.move()
     p.draw()
-    clock.tick(FPS)
+    p.update_and_draw_bullets()
+    clock.tick(TICKS_PER_SECOND)
     pygame.display.update()
-
-
 
