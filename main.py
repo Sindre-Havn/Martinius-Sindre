@@ -3,7 +3,6 @@ from pygame.locals import *
 from pygame.math import *
 import numpy as np
 import sys
-import copy
 
 # The init() function in pygame initializes the pygame engine
 pygame.init()
@@ -20,13 +19,15 @@ def is_off_screen(pos):
     return x < 0 or x > WIN.width or y < 0 or y > WIN.height
 
 
-
 class Mob:
-    def __init__(self,pos,speed,size):
-        #self.image = pygame.image.load("")
-        self.box = pygame.Rect(pos, size) #self.box = self.image.get_rect()
+    def __init__(self,pos,speed,size,image=None):
+        if image == None:
+            self.box = pygame.Rect(pos, size)
+        else:
+             self.image = pygame.image.load("")
+             self.box = self.image.get_rect()
         self.box.center = pos
-        self.pos = copy.copy(self.box.center)
+        self.pos = self.box.center
         self.speed = speed
         self.size = size
         self.direction = Vector2()
@@ -64,13 +65,16 @@ class Bullet(Mob):
         return x_rot, y_rot
 
 class Gun:
-    def __init__(self, firerate, magazine_size, total_bullets, size):
+    def __init__(self, firerate, magazine_size, total_bullets, size, image, pos_on_player):
+        self.image = pygame.image.load(image)
+        self.box = self.image.get_rect()
         self.firerate = firerate
         self.magazine_size = magazine_size
         self.total_bullets = total_bullets
         self.size = size
         self.upgraded = True
         self.shot_delay = 500 #ms
+        self.pos_on_player = pos_on_player
     
     def shoot(self):
         b = Bullet(Vector2(p.pos),10,Vector2(5,5),p.aim_direction)
@@ -90,7 +94,6 @@ class Player(Mob):
         self.last_shot_time = 0
 
     def move(self):
-        self.current_time = pygame.time.get_ticks()
         move_vec = Vector2(0,0)
         pressed_keys = pygame.key.get_pressed()
         if pressed_keys[K_w]:
@@ -107,7 +110,11 @@ class Player(Mob):
         if move_vec.length() != 0:
             self.box.center += move_vec.normalize() * self.speed
             self.pos = self.box.center
-
+            #if self.direction.x < 1:
+            #    self.gun.box.right = self.box.left
+                
+        
+        self.current_time = pygame.time.get_ticks()
         if pygame.mouse.get_pressed()[0] and self.gun.upgraded and self.current_time - self.last_shot_time > self.gun.shot_delay:
             g.shoot()
             self.last_shot_time = self.current_time
@@ -129,8 +136,9 @@ class Player(Mob):
         pygame.draw.line(WIN, (100,100,100), pos_center, aim_line_end)
 
         super().draw()
+        WIN.blit(pygame.transform.flip(self.gun.image, False, False), self.box.topleft+self.gun.pos_on_player)
 
-g = Gun(200, None, None, Vector2(5,5))
+g = Gun(200, None, None, Vector2(5,5), "basic_gun.png", Vector2(27,5))
 p = Player(Vector2(200,200), 5, Vector2(30,30), g)
 
 while True:
@@ -139,7 +147,7 @@ while True:
             pygame.quit()
             sys.exit()
 
-    WIN.fill((0,0,0))
+    WIN.fill((50,50,50))
     p.move()
     p.draw()
     p.update_and_draw_bullets()
