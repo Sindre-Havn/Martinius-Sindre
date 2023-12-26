@@ -7,17 +7,29 @@ import sys
 # The init() function in pygame initializes the pygame engine
 pygame.init()
 # Creates a window
-WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN) #WIN = pygame.display.set_mode((400,400)) #
+WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+#WIN = pygame.display.set_mode((400,400)) #
 WIN.fill(pygame.Color(255, 0, 0))
 pygame.display.set_caption("Survival")
 clock = pygame.time.Clock()
-TICKS_PER_SECOND = 60
+TICKS_PER_SECOND = 4
 
 out_of_screen_distance = Vector2(WIN.get_width(), WIN.get_height())
 def is_off_screen(pos):
     x, y = pos
     return x < 0 or x > WIN.width or y < 0 or y > WIN.height
 
+def blitRotate(surf, original_image, origin, pivot, angle, scale):
+
+    image_rect = original_image.get_rect(topleft = (origin[0] - pivot[0], origin[1]-pivot[1]))
+    offset_center_to_pivot = (pygame.math.Vector2(origin) - image_rect.center) * scale
+    rotated_offset = offset_center_to_pivot.rotate(-angle)
+    rotated_image_center = (origin[0] - rotated_offset.x, origin[1] - rotated_offset.y)
+    rotozoom_image = pygame.transform.rotozoom(original_image, angle, scale)
+    rect = rotozoom_image.get_rect(center = rotated_image_center)
+
+    surf.blit(rotozoom_image, rect)
+    """pygame.draw.rect(surf, (255, 0, 0), rect, 2)"""
 
 class Mob:
     def __init__(self,pos,speed,size,image=None):
@@ -65,7 +77,7 @@ class Bullet(Mob):
         return x_rot, y_rot
 
 class Gun:
-    def __init__(self, firerate, magazine_size, total_bullets, size, image, pos_on_player):
+    def __init__(self, firerate, magazine_size, total_bullets, size, image, pos_on_player, rotation_point):
         self.image = pygame.image.load(image)
         self.box = self.image.get_rect()
         self.firerate = firerate
@@ -74,11 +86,56 @@ class Gun:
         self.size = size
         self.upgraded = True
         self.shot_delay = 500 #ms
+
         self.pos_on_player = pos_on_player
+        self.rotation_point = rotation_point
+        self.pos_barrel = Vector2(33,-2)
+        self.laser_aim = True
     
     def shoot(self):
         b = Bullet(Vector2(p.pos),10,Vector2(5,5),p.aim_direction)
         p.bullets.append(b)
+    
+    def draw(self):
+        mouse_pos = Vector2(pygame.mouse.get_pos())
+        rotation_point_to_barrel = Vector2(- self.pos_on_player.x, self.pos_barrel.y-self.pos_on_player.y)
+        rotation_point_to_target = mouse_pos-p.pos+rotation_point_to_barrel
+        len_rot_to_target, ang_rot_to_target = rotation_point_to_target.as_polar()
+        angle = np.arcsin(rotation_point_to_barrel.y/len_rot_to_target)
+
+        angle_of_aimline = np.deg2rad(ang_rot_to_target)-angle
+        length = len_rot_to_target - np.tan(angle)*rotation_point_to_barrel.y + rotation_point_to_barrel.x
+        target_to_middle = Vector2(length*np.cos(angle_of_aimline), length*np.sin(angle_of_aimline))
+
+        end_barrel = p.pos+self.pos_on_player+rotation_point_to_target-target_to_middle
+        direction = (mouse_pos-end_barrel).normalize()
+        
+        # Aim line
+        pygame.draw.line(WIN, (200,200,200), end_barrel, end_barrel+direction*2000) # 2000 is just so it goes out of fullscreen
+        # Gun render
+        blitRotate(WIN, self.image, p.pos+self.pos_on_player, self.rotation_point, -np.degrees(angle_of_aimline), 1)
+
+        """
+        # End of gun, to mouse:
+        pygame.draw.line(WIN, (200,200,200), end_barrel, mouse_pos)
+        # Debugging point on player
+        pygame.draw.circle(WIN, (255,0,0), p.pos+self.pos_on_player+rotation_point_to_target-target_to_middle, 1)
+        pygame.draw.circle(WIN, (0,0,255), p.pos+self.pos_on_player+Vector2(-rotation_point_to_barrel.x, rotation_point_to_barrel.y), 1)
+        pygame.draw.line(WIN, (200,200,200), p.pos+self.pos_on_player, p.pos+self.pos_on_player+Vector2(-rotation_point_to_barrel.x, rotation_point_to_barrel.y))
+
+        # Gun points
+        pygame.draw.circle(WIN, (255,0,0), p.pos+self.pos_barrel, 1)
+        pygame.draw.circle(WIN, (255,0,0), p.pos+self.pos_on_player, 1)
+        pygame.draw.circle(WIN, (255,0,0), mouse_pos-target_to_middle, 1)
+
+        # Debugging vectors
+        pygame.draw.line(WIN, (200,200,200), Vector2(50,350), Vector2(50-rotation_point_to_barrel.x,350+rotation_point_to_barrel.y))
+        pygame.draw.line(WIN, (200,200,200), Vector2(50, 350), Vector2(50, 350)+rotation_point_to_target)
+        pygame.draw.line(WIN, (200,200,200), Vector2(50, 350)+rotation_point_to_target, Vector2(50, 350)+rotation_point_to_target-target_to_middle)
+        pygame.draw.circle(WIN, (255,0,0), Vector2(50, 350), 1)
+        pygame.draw.circle(WIN, (255,0,0), Vector2(50, 350)+rotation_point_to_target-target_to_middle, 1)
+        pygame.draw.circle(WIN, (0,0,255), Vector2(50, 350)+Vector2(-rotation_point_to_barrel.x, rotation_point_to_barrel.y), 1)
+        """
 
     def reload(self):
         pass
@@ -128,17 +185,10 @@ class Player(Mob):
             bullet.draw()
 
     def draw(self):
-        mouse_pos = Vector2(pygame.mouse.get_pos())
-        pos_center = Vector2(self.box.center)
-        self.aim_direction = (mouse_pos - pos_center).normalize()
-        longest_screen_dimetion = max(WIN.get_width(), WIN.get_height())
-        aim_line_end = pos_center + self.aim_direction * longest_screen_dimetion
-        pygame.draw.line(WIN, (100,100,100), pos_center, aim_line_end)
-
         super().draw()
-        WIN.blit(pygame.transform.flip(self.gun.image, False, False), self.box.topleft+self.gun.pos_on_player)
+        self.gun.draw()
 
-g = Gun(200, None, None, Vector2(5,5), "basic_gun.png", Vector2(27,5))
+g = Gun(200, None, None, Vector2(5,5), "basic_gun.png", Vector2(15,2), Vector2(4,14))
 p = Player(Vector2(200,200), 5, Vector2(30,30), g)
 
 while True:
