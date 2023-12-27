@@ -8,11 +8,11 @@ import sys
 pygame.init()
 # Creates a window
 WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
-#WIN = pygame.display.set_mode((400,400)) #
+#WIN = pygame.display.set_mode((400,400))
 WIN.fill(pygame.Color(255, 0, 0))
 pygame.display.set_caption("Survival")
 clock = pygame.time.Clock()
-TICKS_PER_SECOND = 4
+TICKS_PER_SECOND = 60
 
 out_of_screen_distance = Vector2(WIN.get_width(), WIN.get_height())
 def is_off_screen(pos):
@@ -39,7 +39,6 @@ class Mob:
              self.image = pygame.image.load("")
              self.box = self.image.get_rect()
         self.box.center = pos
-        self.pos = self.box.center
         self.speed = speed
         self.size = size
         self.direction = Vector2()
@@ -62,11 +61,11 @@ class Bullet(Mob):
     def move(self):
         self.moved_distance += self.speed*1
         self.box.center = self.rotate_bullet(self.moved_distance, self.trajectory(self.moved_distance))
-        self.pos = self.box.center
 
     def trajectory(self, x):
         #return 0.0001*x**2
-        return 60*np.sin(0.01*x)
+        #return 60*np.sin(0.01*x)
+        return 0
     
     def rotate_bullet(self, x, y):
         #rotation matrix formula
@@ -77,65 +76,52 @@ class Bullet(Mob):
         return x_rot, y_rot
 
 class Gun:
-    def __init__(self, firerate, magazine_size, total_bullets, size, image, pos_on_player, rotation_point):
+    def __init__(self, firerate, magazine_size, total_bullets, size, image):
         self.image = pygame.image.load(image)
         self.box = self.image.get_rect()
         self.firerate = firerate
         self.magazine_size = magazine_size
         self.total_bullets = total_bullets
         self.size = size
-        self.upgraded = True
         self.shot_delay = 500 #ms
-
-        self.pos_on_player = pos_on_player
-        self.rotation_point = rotation_point
-        self.pos_barrel = Vector2(33,-2)
         self.laser_aim = True
+        self.upgraded = True
+        self.aim_direction = Vector2()
+        self.pos_muzzle = Vector2(19,10)
+
+
+        # Relative distances
+        self.player_grip = Vector2(15,2)
+        self.pivot = Vector2(4,14)
+        self.muzzle = Vector2(19,10)
+        self.pivot2muzzle = self.muzzle-self.pivot
     
     def shoot(self):
-        b = Bullet(Vector2(p.pos),10,Vector2(5,5),p.aim_direction)
+        b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
         p.bullets.append(b)
     
     def draw(self):
         mouse_pos = Vector2(pygame.mouse.get_pos())
-        rotation_point_to_barrel = Vector2(- self.pos_on_player.x, self.pos_barrel.y-self.pos_on_player.y)
-        rotation_point_to_target = mouse_pos-p.pos+rotation_point_to_barrel
-        len_rot_to_target, ang_rot_to_target = rotation_point_to_target.as_polar()
-        angle = np.arcsin(rotation_point_to_barrel.y/len_rot_to_target)
+        pivot2cursor = mouse_pos-self.player_grip-p.box.center
+        len_pivot2cursor, ang_pivot2cursor = pivot2cursor.as_polar()
+        angle = np.arcsin(self.pivot2muzzle.y/len_pivot2cursor)
 
-        angle_of_aimline = np.deg2rad(ang_rot_to_target)-angle
-        length = len_rot_to_target - np.tan(angle)*rotation_point_to_barrel.y + rotation_point_to_barrel.x
-        target_to_middle = Vector2(length*np.cos(angle_of_aimline), length*np.sin(angle_of_aimline))
-
-        end_barrel = p.pos+self.pos_on_player+rotation_point_to_target-target_to_middle
-        direction = (mouse_pos-end_barrel).normalize()
+        angle_aimline = np.deg2rad(ang_pivot2cursor) - angle
+        len_cursor2muzzle = self.pivot2muzzle.x-self.pivot2muzzle.y/np.arctan(angle)
+        cursor2muzzle = Vector2(len_cursor2muzzle*np.cos(angle_aimline), len_cursor2muzzle*np.sin(angle_aimline))
+        self.pos_muzzle = mouse_pos+round(cursor2muzzle, 0)
+        self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
         
         # Aim line
-        pygame.draw.line(WIN, (200,200,200), end_barrel, end_barrel+direction*2000) # 2000 is just so it goes out of fullscreen
+        if self.laser_aim:
+            pygame.draw.line(WIN, (200,200,200), self.pos_muzzle, self.pos_muzzle+self.aim_direction*2000) # 2000 is just so it goes out of fullscreen
+        
         # Gun render
-        blitRotate(WIN, self.image, p.pos+self.pos_on_player, self.rotation_point, -np.degrees(angle_of_aimline), 1)
-
-        """
-        # End of gun, to mouse:
-        pygame.draw.line(WIN, (200,200,200), end_barrel, mouse_pos)
-        # Debugging point on player
-        pygame.draw.circle(WIN, (255,0,0), p.pos+self.pos_on_player+rotation_point_to_target-target_to_middle, 1)
-        pygame.draw.circle(WIN, (0,0,255), p.pos+self.pos_on_player+Vector2(-rotation_point_to_barrel.x, rotation_point_to_barrel.y), 1)
-        pygame.draw.line(WIN, (200,200,200), p.pos+self.pos_on_player, p.pos+self.pos_on_player+Vector2(-rotation_point_to_barrel.x, rotation_point_to_barrel.y))
+        blitRotate(WIN, self.image, p.box.center+self.player_grip, self.pivot, -np.degrees(angle_aimline), 1)
 
         # Gun points
-        pygame.draw.circle(WIN, (255,0,0), p.pos+self.pos_barrel, 1)
-        pygame.draw.circle(WIN, (255,0,0), p.pos+self.pos_on_player, 1)
-        pygame.draw.circle(WIN, (255,0,0), mouse_pos-target_to_middle, 1)
-
-        # Debugging vectors
-        pygame.draw.line(WIN, (200,200,200), Vector2(50,350), Vector2(50-rotation_point_to_barrel.x,350+rotation_point_to_barrel.y))
-        pygame.draw.line(WIN, (200,200,200), Vector2(50, 350), Vector2(50, 350)+rotation_point_to_target)
-        pygame.draw.line(WIN, (200,200,200), Vector2(50, 350)+rotation_point_to_target, Vector2(50, 350)+rotation_point_to_target-target_to_middle)
-        pygame.draw.circle(WIN, (255,0,0), Vector2(50, 350), 1)
-        pygame.draw.circle(WIN, (255,0,0), Vector2(50, 350)+rotation_point_to_target-target_to_middle, 1)
-        pygame.draw.circle(WIN, (0,0,255), Vector2(50, 350)+Vector2(-rotation_point_to_barrel.x, rotation_point_to_barrel.y), 1)
-        """
+        pygame.draw.circle(WIN, (255,0,0), p.box.center+self.player_grip, 1)
+        pygame.draw.circle(WIN, (255,0,0), self.pos_muzzle, 1)
 
     def reload(self):
         pass
@@ -144,7 +130,6 @@ class Gun:
 class Player(Mob):
     def __init__(self,pos,speed,size, gun):
         super().__init__(pos,speed,size)
-        self.aim_direction = (Vector2(pygame.mouse.get_pos()) - Vector2(self.box.center)).normalize()
         self.bullets = []
         self.gun = gun
         self.current_time = 0
@@ -166,7 +151,6 @@ class Player(Mob):
             sys.exit()
         if move_vec.length() != 0:
             self.box.center += move_vec.normalize() * self.speed
-            self.pos = self.box.center
             #if self.direction.x < 1:
             #    self.gun.box.right = self.box.left
                 
@@ -180,7 +164,6 @@ class Player(Mob):
         for bullet in self.bullets:
             if Vector2(self.box.center).distance_to(Vector2(bullet.box.center)) > out_of_screen_distance.length():
                 self.bullets.remove(bullet)
-                print('Remove', len(self.bullets))
             bullet.move()
             bullet.draw()
 
@@ -188,7 +171,7 @@ class Player(Mob):
         super().draw()
         self.gun.draw()
 
-g = Gun(200, None, None, Vector2(5,5), "basic_gun.png", Vector2(15,2), Vector2(4,14))
+g = Gun(200, None, None, Vector2(5,5), "basic_gun.png")
 p = Player(Vector2(200,200), 5, Vector2(30,30), g)
 
 while True:
