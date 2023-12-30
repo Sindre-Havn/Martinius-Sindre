@@ -20,7 +20,7 @@ def is_off_screen(pos, tollerance):
     return x < -tollerance or x > WIN.get_width()+tollerance or y < -tollerance or y > WIN.get_height()+tollerance
 
 def blitRotate(surf, original_image, origin, pivot, angle, scale):
-    """ Rotate image around an origin point, with an angle, and scale it. """
+    """ Rotate image around an origin point, to a given angle, and scale it. """
     image_rect = original_image.get_rect(topleft = (origin[0] - pivot[0], origin[1]-pivot[1]))
     offset_center_to_pivot = (pygame.math.Vector2(origin) - image_rect.center) * scale
     rotated_offset = offset_center_to_pivot.rotate(-angle)
@@ -89,6 +89,7 @@ class Gun:
         self.upgraded = True
         self.aim_direction = Vector2()
         self.pos_muzzle = Vector2(19,10)
+        self.angle_aimline = None
 
 
         # Relative distances 
@@ -96,7 +97,7 @@ class Gun:
         self.pivot = Vector2(4,14)
         self.muzzle = Vector2(19,10)
 
-        self.pivot2muzzle = self.muzzle-self.pivot
+        self.switched_hand = False
     
     def shoot(self):
         b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
@@ -104,32 +105,50 @@ class Gun:
     
     def draw(self):
         mouse_pos = Vector2(pygame.mouse.get_pos())
-        pivot2cursor = mouse_pos-self.player_grip-p.rect.center
-        len_pivot2cursor, ang_pivot2cursor = pivot2cursor.as_polar()
-        angle = np.arcsin(self.pivot2muzzle.y/len_pivot2cursor)
+        if not mouse_pos:
+            return
 
-        angle_aimline = np.deg2rad(ang_pivot2cursor) - angle
-        len_cursor2muzzle = self.pivot2muzzle.x-self.pivot2muzzle.y/np.arctan(angle)
-        cursor2muzzle = Vector2(len_cursor2muzzle*np.cos(angle_aimline), len_cursor2muzzle*np.sin(angle_aimline))
-        self.pos_muzzle = mouse_pos+round(cursor2muzzle, 0)
-        self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
-        """
-        # Code for use of controllers
-        self.aim_direction = joystick direction #(pygame.mouse.get_pos() - Vector2(p.rect.center) - self.player_grip).normalize()
-        angle_aimline = np.deg2rad(self.aim_direction.as_polar()[1])
-        self.pos_muzzle = p.rect.center + self.player_grip + round(self.pivot2muzzle.length() * Vector2(np.cos(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x)), np.sin(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x))), 0)
-        """
-        
+        # Check if to switch gun from right hand to left, and left to right
+        if not self.switched_hand and mouse_pos[0] < p.rect.left:
+            self.player_grip.x *= -1
+            self.pivot.y       = self.rect.height - self.pivot.y
+            self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
+            self.switched_hand = True
+        elif self.switched_hand and mouse_pos[0] > p.rect.right:
+            self.player_grip.x *= -1
+            self.pivot.y       = self.rect.height - self.pivot.y
+            self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
+            self.switched_hand = False
+
+        pivot2muzzle = self.muzzle-self.pivot
+        pivot2cursor = mouse_pos-self.player_grip-p.rect.center
+        if pivot2cursor.length() > pivot2muzzle.length() and not p.rect.collidepoint(mouse_pos):
+            len_pivot2cursor, ang_pivot2cursor = pivot2cursor.as_polar()
+            angle = np.arcsin(pivot2muzzle.y/len_pivot2cursor)
+            self.angle_aimline = np.deg2rad(ang_pivot2cursor) - angle
+            len_cursor2muzzle = pivot2muzzle.x-pivot2muzzle.y/np.arctan(angle)
+            cursor2muzzle = Vector2(len_cursor2muzzle*np.cos(self.angle_aimline), len_cursor2muzzle*np.sin(self.angle_aimline))
+            self.pos_muzzle = mouse_pos+round(cursor2muzzle, 0)
+            if (mouse_pos-self.pos_muzzle).length() > 0:
+                self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
+
         # Aim line
         if self.laser_aim:
             pygame.draw.line(WIN, (200,200,200), self.pos_muzzle, self.pos_muzzle+self.aim_direction*2000) # 2000 is just so it goes out of fullscreen
-        
+
         # Gun render
-        blitRotate(WIN, self.image, p.rect.center+self.player_grip, self.pivot, -np.degrees(angle_aimline), 1)
+        blitRotate(WIN, self.image, p.rect.center+self.player_grip, self.pivot, -np.degrees(self.angle_aimline), 1)
 
         # Gun points
         pygame.draw.circle(WIN, (255,0,0), p.rect.center+self.player_grip, 1)
         pygame.draw.circle(WIN, (255,0,0), self.pos_muzzle, 1)
+
+        """
+        # Code for use of controllers
+        self.aim_direction = joystick direction #(pygame.mouse.get_pos() - Vector2(p.rect.center) - self.player_grip).normalize()
+        angle_aimline = np.deg2rad(self.aim_direction.as_polar()[1])
+        self.pos_muzzle = p.rect.center + self.player_grip + round(pivot2muzzle.length() * Vector2(np.cos(angle_aimline+np.arctan(pivot2muzzle.y/pivot2muzzle.x)), np.sin(angle_aimline+np.arctan(pivot2muzzle.y/pivot2muzzle.x))), 0)
+        """
 
     def reload(self):
         pass
@@ -160,8 +179,7 @@ class Player(Mob):
         if move_vec.length() != 0:
             self.rect.center += move_vec.normalize() * self.speed
             #if self.direction.x < 1:
-            #    self.gun.rect.right = self.rect.left
-                
+            #    self.gun.rect.right = self.rect.left               
         
         self.current_time = pygame.time.get_ticks()
         if pygame.mouse.get_pressed()[0] and self.gun.upgraded and self.current_time - self.last_shot_time > self.gun.shot_delay:
