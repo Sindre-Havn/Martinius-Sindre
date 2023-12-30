@@ -7,20 +7,20 @@ import sys
 # The init() function in pygame initializes the pygame engine
 pygame.init()
 # Creates a window
-WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
-#WIN = pygame.display.set_mode((400,400))
+#WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+WIN = pygame.display.set_mode((400,400))
 WIN.fill(pygame.Color(255, 0, 0))
 pygame.display.set_caption("Survival")
 clock = pygame.time.Clock()
 TICKS_PER_SECOND = 60
 
 out_of_screen_distance = Vector2(WIN.get_width(), WIN.get_height())
-def is_off_screen(pos):
+def is_off_screen(pos, tollerance):
     x, y = pos
-    return x < 0 or x > WIN.width or y < 0 or y > WIN.height
+    return x < -tollerance or x > WIN.get_width()+tollerance or y < -tollerance or y > WIN.get_height()+tollerance
 
 def blitRotate(surf, original_image, origin, pivot, angle, scale):
-
+    """ Rotate image around an origin point, with an angle, and scale it. """
     image_rect = original_image.get_rect(topleft = (origin[0] - pivot[0], origin[1]-pivot[1]))
     offset_center_to_pivot = (pygame.math.Vector2(origin) - image_rect.center) * scale
     rotated_offset = offset_center_to_pivot.rotate(-angle)
@@ -31,23 +31,22 @@ def blitRotate(surf, original_image, origin, pivot, angle, scale):
     surf.blit(rotozoom_image, rect)
     """pygame.draw.rect(surf, (255, 0, 0), rect, 2)"""
 
-class Mob:
+class Mob(pygame.sprite.Sprite):
     def __init__(self,pos,speed,size,image=None):
-        if image == None:
-            self.box = pygame.Rect(pos, size)
+        super().__init__()
+        if image:
+            self.image = pygame.image.load(image)
         else:
-             self.image = pygame.image.load("")
-             self.box = self.image.get_rect()
-        self.box.center = pos
+            self.image = pygame.Surface(size)
+            self.image.fill((0,255,0))
+        
+        self.rect = self.image.get_rect(center = pos)
         self.speed = speed
         self.size = size
         self.direction = Vector2()
     
-    def move(self):
-        self.box.move_ip(self.direction*self.speed)
-
-    def draw(self):
-        pygame.draw.rect(WIN, (0, 255, 0), self.box)
+    def update(self):
+        self.rect.move_ip(self.direction*self.speed)
 
 
 class Bullet(Mob):
@@ -56,11 +55,12 @@ class Bullet(Mob):
         self.start_pos = pos
         self.direction = np.radians(trajectory.as_polar()[1])
         self.moved_distance = 0
-        print(self.direction)
-    
-    def move(self):
-        self.moved_distance += self.speed*1
-        self.box.center = self.rotate_bullet(self.moved_distance, self.trajectory(self.moved_distance))
+
+    def update(self):
+        self.moved_distance += self.speed
+        self.rect.center = self.rotate_bullet(self.moved_distance, self.trajectory(self.moved_distance))
+        if is_off_screen(self.rect.center, 100):
+            self.kill()
 
     def trajectory(self, x):
         #return 0.0001*x**2
@@ -68,6 +68,7 @@ class Bullet(Mob):
         return 0
     
     def rotate_bullet(self, x, y):
+        # Not Optimal for looping or 90 degree trajectories since it updates in steps in x-direction, and y-direction can change a lot in a tiny x-step
         #rotation matrix formula
         #x′=xcosθ−ysinθ
         #y′=xsinθ+ycosθ
@@ -78,7 +79,7 @@ class Bullet(Mob):
 class Gun:
     def __init__(self, firerate, magazine_size, total_bullets, size, image):
         self.image = pygame.image.load(image)
-        self.box = self.image.get_rect()
+        self.rect = self.image.get_rect()
         self.firerate = firerate
         self.magazine_size = magazine_size
         self.total_bullets = total_bullets
@@ -99,11 +100,11 @@ class Gun:
     
     def shoot(self):
         b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
-        p.bullets.append(b)
+        bullet_group.add(b)
     
     def draw(self):
         mouse_pos = Vector2(pygame.mouse.get_pos())
-        pivot2cursor = mouse_pos-self.player_grip-p.box.center
+        pivot2cursor = mouse_pos-self.player_grip-p.rect.center
         len_pivot2cursor, ang_pivot2cursor = pivot2cursor.as_polar()
         angle = np.arcsin(self.pivot2muzzle.y/len_pivot2cursor)
 
@@ -114,9 +115,9 @@ class Gun:
         self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
         """
         # Code for use of controllers
-        self.aim_direction = joystick direction #(pygame.mouse.get_pos() - Vector2(p.box.center) - self.player_grip).normalize()
+        self.aim_direction = joystick direction #(pygame.mouse.get_pos() - Vector2(p.rect.center) - self.player_grip).normalize()
         angle_aimline = np.deg2rad(self.aim_direction.as_polar()[1])
-        self.pos_muzzle = p.box.center + self.player_grip + round(self.pivot2muzzle.length() * Vector2(np.cos(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x)), np.sin(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x))), 0)
+        self.pos_muzzle = p.rect.center + self.player_grip + round(self.pivot2muzzle.length() * Vector2(np.cos(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x)), np.sin(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x))), 0)
         """
         
         # Aim line
@@ -124,10 +125,10 @@ class Gun:
             pygame.draw.line(WIN, (200,200,200), self.pos_muzzle, self.pos_muzzle+self.aim_direction*2000) # 2000 is just so it goes out of fullscreen
         
         # Gun render
-        blitRotate(WIN, self.image, p.box.center+self.player_grip, self.pivot, -np.degrees(angle_aimline), 1)
+        blitRotate(WIN, self.image, p.rect.center+self.player_grip, self.pivot, -np.degrees(angle_aimline), 1)
 
         # Gun points
-        pygame.draw.circle(WIN, (255,0,0), p.box.center+self.player_grip, 1)
+        pygame.draw.circle(WIN, (255,0,0), p.rect.center+self.player_grip, 1)
         pygame.draw.circle(WIN, (255,0,0), self.pos_muzzle, 1)
 
     def reload(self):
@@ -142,7 +143,7 @@ class Player(Mob):
         self.current_time = 0
         self.last_shot_time = 0
 
-    def move(self):
+    def update(self):
         move_vec = Vector2(0,0)
         pressed_keys = pygame.key.get_pressed()
         if pressed_keys[K_w]:
@@ -157,9 +158,9 @@ class Player(Mob):
             pygame.quit()
             sys.exit()
         if move_vec.length() != 0:
-            self.box.center += move_vec.normalize() * self.speed
+            self.rect.center += move_vec.normalize() * self.speed
             #if self.direction.x < 1:
-            #    self.gun.box.right = self.box.left
+            #    self.gun.rect.right = self.rect.left
                 
         
         self.current_time = pygame.time.get_ticks()
@@ -167,19 +168,11 @@ class Player(Mob):
             g.shoot()
             self.last_shot_time = self.current_time
 
-    def update_and_draw_bullets(self):
-        for bullet in self.bullets:
-            if Vector2(self.box.center).distance_to(Vector2(bullet.box.center)) > out_of_screen_distance.length():
-                self.bullets.remove(bullet)
-            bullet.move()
-            bullet.draw()
-
-    def draw(self):
-        super().draw()
-        self.gun.draw()
-
 g = Gun(200, None, None, Vector2(5,5), "basic_gun.png")
 p = Player(Vector2(200,200), 5, Vector2(30,30), g)
+
+player_group = pygame.sprite.GroupSingle(p)
+bullet_group = pygame.sprite.Group()
 
 while True:
     for event in pygame.event.get():
@@ -188,9 +181,11 @@ while True:
             sys.exit()
 
     WIN.fill((50,50,50))
-    p.move()
-    p.draw()
-    p.update_and_draw_bullets()
+    bullet_group.update()
+    player_group.update()
+    bullet_group.draw(WIN)
+    player_group.draw(WIN)
+    g.draw()
     clock.tick(TICKS_PER_SECOND)
     pygame.display.update()
 
