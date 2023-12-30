@@ -90,10 +90,11 @@ class Gun:
         self.pos_muzzle = Vector2(19,10)
 
 
-        # Relative distances
+        # Relative distances 
         self.player_grip = Vector2(15,2)
         self.pivot = Vector2(4,14)
         self.muzzle = Vector2(19,10)
+
         self.pivot2muzzle = self.muzzle-self.pivot
     
     def shoot(self):
@@ -111,6 +112,12 @@ class Gun:
         cursor2muzzle = Vector2(len_cursor2muzzle*np.cos(angle_aimline), len_cursor2muzzle*np.sin(angle_aimline))
         self.pos_muzzle = mouse_pos+round(cursor2muzzle, 0)
         self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
+        """
+        # Code for use of controllers
+        self.aim_direction = joystick direction #(pygame.mouse.get_pos() - Vector2(p.box.center) - self.player_grip).normalize()
+        angle_aimline = np.deg2rad(self.aim_direction.as_polar()[1])
+        self.pos_muzzle = p.box.center + self.player_grip + round(self.pivot2muzzle.length() * Vector2(np.cos(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x)), np.sin(angle_aimline+np.arctan(self.pivot2muzzle.y/self.pivot2muzzle.x))), 0)
+        """
         
         # Aim line
         if self.laser_aim:
