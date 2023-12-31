@@ -3,12 +3,17 @@ from pygame.locals import *
 from pygame.math import *
 import numpy as np
 import sys
+from enum import Enum
+import random
+ 
+class Item_Type(Enum):
+    GUN = 0
 
 # The init() function in pygame initializes the pygame engine
 pygame.init()
 # Creates a window
-WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
-#WIN = pygame.display.set_mode((400,400))
+#WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+WIN = pygame.display.set_mode((400,400))
 WIN.fill(pygame.Color(255, 0, 0))
 pygame.display.set_caption("Survival")
 clock = pygame.time.Clock()
@@ -35,7 +40,7 @@ class Mob(pygame.sprite.Sprite):
     def __init__(self,pos,speed,size,image=None):
         super().__init__()
         if image:
-            self.image = pygame.image.load(image)
+            self.image = pygame.image.load(image).convert_alpha()
         else:
             self.image = pygame.Surface(size)
             self.image.fill((0,255,0))
@@ -76,9 +81,10 @@ class Bullet(Mob):
         y_rot = x*np.sin(self.direction) + y*np.cos(self.direction) + self.start_pos.y
         return x_rot, y_rot
 
-class Gun:
+class Gun(pygame.sprite.Sprite):
     def __init__(self, firerate, magazine_size, total_bullets, size, image):
-        self.image = pygame.image.load(image)
+        super().__init__()
+        self.image = pygame.image.load(image).convert_alpha()
         self.rect = self.image.get_rect()
         self.firerate = firerate
         self.magazine_size = magazine_size
@@ -90,41 +96,35 @@ class Gun:
         self.aim_direction = Vector2()
         self.pos_muzzle = Vector2(19,10)
         self.angle_aimline = None
+        self.equipped = True
+        self.item_type = Item_Type.GUN
+        self.pickable = False
 
 
         # Relative distances 
         self.player_grip = Vector2(4,6)
-        self.pivot = Vector2(4,14)
-        self.muzzle = Vector2(19,10)
+        self.pivot = Vector2(4,8)
+        self.muzzle = Vector2(19,4)
 
         self.switched_hand = False
     
     def shoot(self):
         b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
         bullet_group.add(b)
-    
+
     def draw(self):
         mouse_pos = Vector2(pygame.mouse.get_pos())
         if not mouse_pos:
             return
-
-        # Check if to switch gun from right hand to left, and left to right
-        if not self.switched_hand and mouse_pos[0] < p.rect.left:
-            self.player_grip.x *= -1
-            self.pivot.y       = self.rect.height - self.pivot.y
-            self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
-            self.switched_hand = True
-            p.image = pygame.transform.flip(p.image, flip_x=True, flip_y=False)
-        elif self.switched_hand and mouse_pos[0] > p.rect.right:
-            self.player_grip.x *= -1
-            self.pivot.y       = self.rect.height - self.pivot.y
-            self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
-            self.switched_hand = False
-            p.image = pygame.transform.flip(p.image, flip_x=True, flip_y=False)
+        
+        if not self.equipped:
+            WIN.blit(self.image, self.rect)
+            return
 
         pivot2muzzle = self.muzzle-self.pivot
         pivot2cursor = mouse_pos-self.player_grip-p.rect.center
-        if pivot2cursor.length() > pivot2muzzle.length() and not p.rect.collidepoint(mouse_pos):
+        margin = 5
+        if pivot2cursor.length() > margin+pivot2muzzle.length() and not p.rect.collidepoint(mouse_pos):
             len_pivot2cursor, ang_pivot2cursor = pivot2cursor.as_polar()
             angle = np.arcsin(pivot2muzzle.y/len_pivot2cursor)
             self.angle_aimline = np.deg2rad(ang_pivot2cursor) - angle
@@ -133,11 +133,11 @@ class Gun:
             self.pos_muzzle = mouse_pos+round(cursor2muzzle, 0)
             if (mouse_pos-self.pos_muzzle).length() > 0:
                 self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
-
+        
+        
         # Aim line
         if self.laser_aim:
             pygame.draw.line(WIN, (200,200,200), self.pos_muzzle, self.pos_muzzle+self.aim_direction*2000) # 2000 is just so it goes out of fullscreen
-
         # Gun render
         blitRotate(WIN, self.image, p.rect.center+self.player_grip, self.pivot, -np.degrees(self.angle_aimline), 1)
 
@@ -151,18 +151,23 @@ class Gun:
         angle_aimline = np.deg2rad(self.aim_direction.as_polar()[1])
         self.pos_muzzle = p.rect.center + self.player_grip + round(pivot2muzzle.length() * Vector2(np.cos(angle_aimline+np.arctan(pivot2muzzle.y/pivot2muzzle.x)), np.sin(angle_aimline+np.arctan(pivot2muzzle.y/pivot2muzzle.x))), 0)
         """
-
-    def reload(self):
-        pass
-
+    
+    def try_switch_hand(self):
+        # Check if to switch gun from right hand to left, and left to right
+        self.player_grip.x *= -1
+        self.pivot.y       = self.rect.height - self.pivot.y
+        self.muzzle.y      = self.rect.height - self.muzzle.y
+        self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
+        self.switched_hand = not(self.switched_hand)
 
 class Player(Mob):
     def __init__(self,pos,speed,size, gun, image=None):
         super().__init__(pos,speed,size, image)
-        self.bullets = []
-        self.gun = gun
+        self.weapons = [gun]
+        self.current_weapon = 0
         self.current_time = 0
         self.last_shot_time = 0
+        self.is_flipped = False
 
     def update(self):
         move_vec = Vector2(0,0)
@@ -175,21 +180,61 @@ class Player(Mob):
             move_vec.y = 1
         if pressed_keys[K_d]:
             move_vec.x = 1
+        if pressed_keys[K_q]:
+            self.drop_current_weapon()
         if pressed_keys[K_ESCAPE]:
             pygame.quit()
             sys.exit()
         if move_vec.length() != 0:
-            self.rect.center += move_vec.normalize() * self.speed     
-        
+            self.rect.center += move_vec.normalize() * self.speed
+
+        self.pick_up_items()
+        self.try_flip_model_horizontal()
+        self.try_use_weapon()
+    
+    def try_use_weapon(self):
         self.current_time = pygame.time.get_ticks()
-        if pygame.mouse.get_pressed()[0] and self.gun.upgraded and self.current_time - self.last_shot_time > self.gun.shot_delay:
-            g.shoot()
-            self.last_shot_time = self.current_time
+        if len(self.weapons) > 0:
+            if pygame.mouse.get_pressed()[0] and self.current_time - self.last_shot_time > self.weapons[self.current_weapon].shot_delay:
+                g.shoot()
+                self.last_shot_time = self.current_time
+    
+    def drop_current_weapon(self):
+        if len(self.weapons) == 0:
+            return
+        weapon = self.weapons[self.current_weapon]
+        if weapon.switched_hand:
+            weapon.try_switch_hand()
+        
+        margin = 5 + 10*random.random()
+        weapon.rect.center = self.rect.center + Vector2(20*(1-2*random.random()),margin+self.rect.height/2+weapon.rect.height/2)
+        weapon.equipped = False
+        pickable_items.add(self.weapons[self.current_weapon])
+        del self.weapons[self.current_weapon]
+        self.current_weapon = 0
+    
+    def pick_up_items(self):
+        pickups = pygame.sprite.spritecollide(self, pickable_items, dokill=False)
+        for item in pickups:
+            if item.item_type == Item_Type.GUN:
+                item.equipped = True
+                if self.is_flipped:
+                    item.try_switch_hand()
+                self.weapons.append(item)
+                pickable_items.remove(item)
+    
+    def try_flip_model_horizontal(self):
+        mouse_pos = pygame.mouse.get_pos()
+        if (mouse_pos[0] < self.rect.left and not self.is_flipped) or (self.rect.right < mouse_pos[0] and self.is_flipped):
+            self.image = pygame.transform.flip(self.image, flip_x=True, flip_y=False)
+            self.is_flipped = not(self.is_flipped)
+            if len(self.weapons) > 0: self.weapons[self.current_weapon].try_switch_hand()
 
 g = Gun(200, None, None, Vector2(5,5), "basic_gun.png")
 p = Player(Vector2(200,200), 5, Vector2(30,30), g, "fat_geck.png")
 
 player_group = pygame.sprite.GroupSingle(p)
+pickable_items = pygame.sprite.Group()
 bullet_group = pygame.sprite.Group()
 
 while True:
