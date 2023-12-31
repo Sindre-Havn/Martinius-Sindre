@@ -82,45 +82,57 @@ class Bullet(Mob):
         return x_rot, y_rot
 
 class Gun(pygame.sprite.Sprite):
-    def __init__(self, firerate, magazine_size, total_bullets, size, image):
+    def __init__(self, shot_delay, magazine_size, total_bullets, size, image):
         super().__init__()
         self.image = pygame.image.load(image).convert_alpha()
         self.rect = self.image.get_rect()
-        self.firerate = firerate
         self.magazine_size = magazine_size
-        self.total_bullets = total_bullets
-        self.size = size
-        self.shot_delay = 500 #ms
+        self.total_bullets = total_bullets # Not including what is in the magazine
+        self.shot_delay = shot_delay #ms
         self.laser_aim = True
-        self.upgraded = True
         self.aim_direction = Vector2()
         self.pos_muzzle = Vector2(19,10)
         self.angle_aimline = None
         self.equipped = True
         self.item_type = Item_Type.GUN
-        self.pickable = False
+        self.bullets_in_magazine = self.magazine_size
+        self.reload_delay = 2000 #ms
+        self.reloading = False
+        self.reload_time = None
+        self.switched_hand = False
 
-
-        # Relative distances 
+        # Relative distances
         self.player_grip = Vector2(4,6)
         self.pivot = Vector2(4,8)
         self.muzzle = Vector2(19,4)
-
-        self.switched_hand = False
     
     def shoot(self):
-        b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
-        bullet_group.add(b)
+        if self.bullets_in_magazine and not self.reloading:
+            b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
+            bullet_group.add(b)
+            self.bullets_in_magazine -= 1
+        else:
+            self.reload()
+    
+    def reload(self):
+        if self.reloading:
+            if pygame.time.get_ticks() - self.reload_time > self.reload_delay:
+                self.reloading = False
+        elif self.total_bullets:
+            self.reload_time = pygame.time.get_ticks()
+            print('Reloading')
+            self.reloading = True
+            loading_bullets = min(self.magazine_size-self.bullets_in_magazine, self.magazine_size, self.total_bullets)
+            self.total_bullets -= loading_bullets
+            self.bullets_in_magazine += loading_bullets
 
     def draw(self):
         mouse_pos = Vector2(pygame.mouse.get_pos())
         if not mouse_pos:
             return
-        
         if not self.equipped:
             WIN.blit(self.image, self.rect)
             return
-
         pivot2muzzle = self.muzzle-self.pivot
         pivot2cursor = mouse_pos-self.player_grip-p.rect.center
         margin = 5
@@ -134,13 +146,11 @@ class Gun(pygame.sprite.Sprite):
             if (mouse_pos-self.pos_muzzle).length() > 0:
                 self.aim_direction = (mouse_pos-self.pos_muzzle).normalize()
         
-        
         # Aim line
         if self.laser_aim:
             pygame.draw.line(WIN, (200,200,200), self.pos_muzzle, self.pos_muzzle+self.aim_direction*2000) # 2000 is just so it goes out of fullscreen
         # Gun render
         blitRotate(WIN, self.image, p.rect.center+self.player_grip, self.pivot, -np.degrees(self.angle_aimline), 1)
-
         # Red color dot at pivot and muzzle point on gun
         #pygame.draw.circle(WIN, (255,0,0), p.rect.center+self.player_grip, 1)
         #pygame.draw.circle(WIN, (255,0,0), self.pos_muzzle, 1)
@@ -180,6 +190,9 @@ class Player(Mob):
             move_vec.y = 1
         if pressed_keys[K_d]:
             move_vec.x = 1
+        if pressed_keys[K_r]:
+            if hasattr(self.weapons[self.current_weapon], 'reload'):
+                self.weapons[self.current_weapon].reload()
         if pressed_keys[K_q]:
             self.drop_current_weapon()
         if pressed_keys[K_ESCAPE]:
@@ -230,7 +243,7 @@ class Player(Mob):
             self.is_flipped = not(self.is_flipped)
             if len(self.weapons) > 0: self.weapons[self.current_weapon].try_switch_hand()
 
-g = Gun(200, None, None, Vector2(5,5), "basic_gun.png")
+g = Gun(500, 3, 8, Vector2(5,5), "basic_gun.png")
 p = Player(Vector2(200,200), 5, Vector2(30,30), g, "fat_geck.png")
 
 player_group = pygame.sprite.GroupSingle(p)
