@@ -7,8 +7,8 @@ import sys
 # The init() function in pygame initializes the pygame engine
 pygame.init()
 # Creates a window
-#WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
-WIN = pygame.display.set_mode((400,400))
+WIN = pygame.display.set_mode((0,0), pygame.FULLSCREEN)
+#WIN = pygame.display.set_mode((400,400))
 WIN.fill(pygame.Color(255, 0, 0))
 pygame.display.set_caption("Survival")
 clock = pygame.time.Clock()
@@ -93,7 +93,7 @@ class Gun:
 
 
         # Relative distances 
-        self.player_grip = Vector2(15,2)
+        self.player_grip = Vector2(4,6)
         self.pivot = Vector2(4,14)
         self.muzzle = Vector2(19,10)
 
@@ -114,11 +114,13 @@ class Gun:
             self.pivot.y       = self.rect.height - self.pivot.y
             self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
             self.switched_hand = True
+            p.image = pygame.transform.flip(p.image, flip_x=True, flip_y=False)
         elif self.switched_hand and mouse_pos[0] > p.rect.right:
             self.player_grip.x *= -1
             self.pivot.y       = self.rect.height - self.pivot.y
             self.image = pygame.transform.flip(self.image, flip_x=False, flip_y=True)
             self.switched_hand = False
+            p.image = pygame.transform.flip(p.image, flip_x=True, flip_y=False)
 
         pivot2muzzle = self.muzzle-self.pivot
         pivot2cursor = mouse_pos-self.player_grip-p.rect.center
@@ -139,9 +141,9 @@ class Gun:
         # Gun render
         blitRotate(WIN, self.image, p.rect.center+self.player_grip, self.pivot, -np.degrees(self.angle_aimline), 1)
 
-        # Gun points
-        pygame.draw.circle(WIN, (255,0,0), p.rect.center+self.player_grip, 1)
-        pygame.draw.circle(WIN, (255,0,0), self.pos_muzzle, 1)
+        # Red color dot at pivot and muzzle point on gun
+        #pygame.draw.circle(WIN, (255,0,0), p.rect.center+self.player_grip, 1)
+        #pygame.draw.circle(WIN, (255,0,0), self.pos_muzzle, 1)
 
         """
         # Code for use of controllers
@@ -155,8 +157,8 @@ class Gun:
 
 
 class Player(Mob):
-    def __init__(self,pos,speed,size, gun):
-        super().__init__(pos,speed,size)
+    def __init__(self,pos,speed,size, gun, image=None):
+        super().__init__(pos,speed,size, image)
         self.bullets = []
         self.gun = gun
         self.current_time = 0
@@ -177,9 +179,7 @@ class Player(Mob):
             pygame.quit()
             sys.exit()
         if move_vec.length() != 0:
-            self.rect.center += move_vec.normalize() * self.speed
-            #if self.direction.x < 1:
-            #    self.gun.rect.right = self.rect.left               
+            self.rect.center += move_vec.normalize() * self.speed     
         
         self.current_time = pygame.time.get_ticks()
         if pygame.mouse.get_pressed()[0] and self.gun.upgraded and self.current_time - self.last_shot_time > self.gun.shot_delay:
@@ -187,7 +187,7 @@ class Player(Mob):
             self.last_shot_time = self.current_time
 
 g = Gun(200, None, None, Vector2(5,5), "basic_gun.png")
-p = Player(Vector2(200,200), 5, Vector2(30,30), g)
+p = Player(Vector2(200,200), 5, Vector2(30,30), g, "fat_geck.png")
 
 player_group = pygame.sprite.GroupSingle(p)
 bullet_group = pygame.sprite.Group()
