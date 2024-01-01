@@ -108,7 +108,8 @@ class Gun(pygame.sprite.Sprite):
     
     def shoot(self):
         if self.bullets_in_magazine and not self.reloading:
-            b = Bullet(self.pos_muzzle,10,Vector2(5,5),self.aim_direction)
+            spread = 10*(1-2*random.random())
+            b = Bullet(self.pos_muzzle,6,Vector2(5,5),Vector2.from_polar((1, np.degrees(self.angle_aimline)+spread)))
             bullet_group.add(b)
             self.bullets_in_magazine -= 1
         else:
@@ -120,11 +121,11 @@ class Gun(pygame.sprite.Sprite):
                 self.reloading = False
         elif self.total_bullets:
             self.reload_time = pygame.time.get_ticks()
-            print('Reloading')
             self.reloading = True
             loading_bullets = min(self.magazine_size-self.bullets_in_magazine, self.magazine_size, self.total_bullets)
-            self.total_bullets -= loading_bullets
             self.bullets_in_magazine += loading_bullets
+            if not np.isinf(self.total_bullets):
+                 self.total_bullets -= loading_bullets
 
     def draw(self):
         mouse_pos = Vector2(pygame.mouse.get_pos())
@@ -243,7 +244,7 @@ class Player(Mob):
             self.is_flipped = not(self.is_flipped)
             if len(self.weapons) > 0: self.weapons[self.current_weapon].try_switch_hand()
 
-g = Gun(500, 3, 8, Vector2(5,5), "basic_gun.png")
+g = Gun(500, 5, np.inf, Vector2(5,5), "basic_gun.png")
 p = Player(Vector2(200,200), 5, Vector2(30,30), g, "fat_geck.png")
 
 player_group = pygame.sprite.GroupSingle(p)
